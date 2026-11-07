@@ -105,7 +105,7 @@ body.touch-mode .touch-only { display: block; }
 'use strict';
 const W = 640, H = 416, T = 32, COLS = 20, ROWS = 13, NLEV = 12;
 const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+let ctx = cv.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const MONO = '"IBM Plex Mono", ui-monospace, monospace';
 const DISP = '"Silkscreen", "Courier New", monospace';
@@ -589,6 +589,8 @@ function makeEnemy(type, x, y, bi) {
 
 /* ---------- efectos ---------- */
 function burst(x, y, col, n, sp) {
+  if (parts.length > 220) n = Math.min(n, 2);
+  else if (parts.length > 120) n = Math.ceil(n / 2);
   for (let i = 0; i < n; i++) {
     const a = rnd(0, 6.28), s = rnd(sp * 0.3, sp);
     parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(0.25, 0.6), max: 0.6, col, size: ri(2, 4) });
@@ -880,7 +882,7 @@ function updBullets(arr, dt, friendly) {
       }
     }
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-    if (b.life <= 0 || solidAt(b.x, b.y)) { spark(b.x, b.y, b.col, 3); arr.splice(i, 1); continue; }
+    if (b.life <= 0 || solidAt(b.x, b.y)) { if (friendly || arr.length < 80) spark(b.x, b.y, b.col, friendly ? 3 : 1); arr.splice(i, 1); continue; }
     if (friendly) {
       for (const e of enemies) {
         if (e.hp <= 0 || b.hit.has(e)) continue;
@@ -1293,14 +1295,42 @@ function drawSpawns() {
     R_(s.x - 1, s.y - 1, 2, 2, 'rgba(255,255,255,' + k + ')');
   }
 }
+/* Sprites de balas pre-renderizados: un drawImage por bala en vez de decenas de fillRect */
+const bulletSprites = new Map();
+function bulletSprite(col, r, enemy) {
+  const key = col + '|' + r + '|' + (enemy ? 1 : 0);
+  let s = bulletSprites.get(key);
+  if (s) return s;
+  const half = r + 4, size = half * 2, c = document.createElement('canvas');
+  c.width = c.height = size;
+  const main = ctx; ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = false;
+  const wasFL = FL; FL = false;
+  if (enemy) blobF(half, half, r + 2, r + 2, OUT);
+  blobF(half, half, r + 1, r + 1, col);
+  R_(half - 1, half - 1, 2, 2, '#fff');
+  FL = wasFL; ctx = main;
+  s = { c, half };
+  bulletSprites.set(key, s);
+  return s;
+}
 function drawBullets() {
+  ctx.lineCap = 'butt';
   for (const b of pb) {
     ctx.strokeStyle = b.col; ctx.globalAlpha = 0.5; ctx.lineWidth = b.r * 1.6; ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.035, b.y - b.vy * 0.035); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.globalAlpha = 1;
-    blobF(b.x, b.y, b.r + 1, b.r + 1, b.col); R_(b.x - 1, b.y - 1, 2, 2, '#fff');
+    const s = bulletSprite(b.col, b.r, false);
+    ctx.drawImage(s.c, Math.round(b.x - s.half), Math.round(b.y - s.half));
+  }
+  // Estelas de balas enemigas: solo si hay pocas (son lo más caro de dibujar)
+  if (eb.length <= 60) {
+    ctx.globalAlpha = 0.35;
+    for (const b of eb) {
+      ctx.strokeStyle = b.col; ctx.lineWidth = b.r; ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.04, b.y - b.vy * 0.04); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
   for (const b of eb) {
-    ctx.strokeStyle = b.col; ctx.globalAlpha = 0.35; ctx.lineWidth = b.r; ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.04, b.y - b.vy * 0.04); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.globalAlpha = 1;
-    blobF(b.x, b.y, b.r + 2, b.r + 2, OUT); blobF(b.x, b.y, b.r + 1, b.r + 1, b.col); R_(b.x - 1, b.y - 1, 2, 2, '#fff');
+    const s = bulletSprite(b.col, b.r, true);
+    ctx.drawImage(s.c, Math.round(b.x - s.half), Math.round(b.y - s.half));
   }
 }
 function drawParts() {
